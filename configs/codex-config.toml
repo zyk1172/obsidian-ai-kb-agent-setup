@@ -1,0 +1,8 @@
+[mcp_servers.obsidian-ai-kb]
+type = "stdio"
+command = "/Users/zhengyunkai/.local/bin/obsidian-ai-kb"
+args = []
+enabled = true
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+

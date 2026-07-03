@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "obsidian-ai-kb": {
+      "command": "/Users/zhengyunkai/.local/bin/obsidian-ai-kb",
+      "enabled": true
+    }
+  }
+}
+

@@ -1,0 +1,4 @@
+#!/bin/sh
+export OBSIDIAN_AI_EMBED_MODEL="text-embedding-nomic-embed-text-v2-moe"
+exec /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 \
+  /Users/zhengyunkai/.local/share/obsidian-ai-kb/obsidian_ai_kb.py
