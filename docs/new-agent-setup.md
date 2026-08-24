@@ -1,54 +1,67 @@
 # New Agent Setup
 
-Use this when connecting a new agent to the shared Obsidian AI knowledge base.
+## 1. Install
 
-## Required MCP Config
+From the repository root:
 
-The minimum MCP entry is:
-
-```json
-{
-  "mcpServers": {
-    "obsidian-ai-kb": {
-      "command": "/Users/zhengyunkai/.local/bin/obsidian-ai-kb"
-    }
-  }
-}
+```sh
+./scripts/install.sh
 ```
 
-For TOML or YAML clients, use the matching file under `configs/`.
+The installer creates:
 
-## Required Startup Rule
+```text
+~/.local/share/obsidian-ai-kb/.venv/
+~/.local/share/obsidian-ai-kb/obsidian_ai_kb.py
+~/.local/share/obsidian-ai-kb/env
+~/.local/bin/obsidian-ai-kb
+```
 
-Add this rule to the new agent's startup prompt, system instructions, or workspace `AGENTS.md`:
+Existing `env` configuration is never overwritten.
+
+## 2. Configure
+
+Edit:
+
+```text
+~/.local/share/obsidian-ai-kb/env
+```
+
+At minimum verify:
+
+- `OBSIDIAN_AI_PATH`
+- `OBSIDIAN_AI_EMBED_BASE_URL`
+- `OBSIDIAN_AI_EMBED_MODEL`
+
+Keep `OBSIDIAN_AI_ALLOW_SENSITIVE=false` unless there is a specific reason to expose sensitive notes.
+
+## 3. Connect the MCP client
+
+Use the matching example under `configs/` and replace `YOUR_USERNAME` with the macOS username. Absolute paths are recommended because GUI applications may not inherit the shell `PATH`.
+
+## 4. Agent startup rule
 
 ```md
-Use the `obsidian-ai-kb` MCP server as the normal access path for durable local context.
+Use `obsidian-ai-kb` as the normal access path for durable local context.
 
-- Search with `kb_search`.
-- Read exact notes with `kb_get`.
-- Browse inventory with `kb_list`.
-- List old or recently updated notes with `kb_time_list`.
-- Append unprocessed knowledge with `kb_append_inbox`.
-- Create formal notes with `kb_create_note`.
-- Rebuild the index with `kb_reindex` only when verification is needed.
-- For current-state claims, treat old evidence as historical and verify live.
-- Notes serve the user first and agents second.
-- Keep notes in plain Markdown with useful `[[wiki links]]`.
-- After editing a note, refresh the final footer line: `更新时间：YYYY-MM-DD HH:mm Asia/Shanghai`.
-- Sensitive content is indexed through `[[敏感信息]]`; ordinary notes should link to the relevant heading and not duplicate the secret.
+- Search first with `kb_search`; use `hybrid` unless there is a reason to force semantic or keyword mode.
+- Treat search excerpts as retrieval hints. Use `kb_get` when full-note context is required.
+- Prefer results whose path/heading/line range directly support the task.
+- Use `kb_list` for inventory and `kb_time_list` for maintenance review.
+- Put raw/unprocessed fragments in `AI Inbox` with `kb_append_inbox`.
+- Use `kb_create_note` for new durable notes.
+- Before changing an existing note, read it with `kb_get`, then call `kb_update_note` with the returned `sha256` as `expected_sha256`.
+- Use `kb_reindex` only for explicit synchronization or repair; normal search syncs incrementally.
+- Treat old local evidence as historical for current-state questions and verify live facts separately.
+- Sensitive notes are excluded by default. Never copy secrets into ordinary notes or chat.
 ```
 
-## Verification
+## 5. Verify
 
-After restarting the agent:
+After restarting the Agent:
 
-1. Call `kb_status`.
-2. Call `kb_time_list` with `order: "oldest"` and `limit: 5`.
-3. Call `kb_get` for `Agent 读取约定`.
-4. Confirm the returned note mentions `kb_time_list`.
-
-## Notes
-
-`kb_time_list` reads the Markdown footer `更新时间`. It does not rely on filesystem modified times.
-
+1. Call `kb_status` and confirm the vault path and embedding model.
+2. Confirm `sensitive_notes_allowed` is `false`.
+3. Call `kb_search` for a known phrase in `keyword` mode.
+4. Call the same query in `hybrid` mode; if embeddings are offline it should fall back to keyword mode with an `embedding_error` instead of failing completely.
+5. Call `kb_get` on one result and confirm the note path/body are correct.

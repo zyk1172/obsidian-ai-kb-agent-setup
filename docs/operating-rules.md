@@ -1,29 +1,28 @@
 # Operating Rules
 
-## Read Path
+## Read path
 
-Start from:
-
-- `AI 总览`
-- `实体地图`
-- `任务地图`
-- `Obsidian AI 知识库规范`
-- `Agent 读取约定`
-- `AI Inbox`
-
-Prefer:
+Use the cheapest reliable path:
 
 ```text
-任务说明 -> 验证记录 -> 实体说明 -> 长期知识 -> 索引
+kb_search -> kb_get only when needed -> live verification for current facts
 ```
 
-## Write Path
+Search results contain `path`, `heading`, `line_start` and `line_end`. Prefer those provenance fields over relying on a generated summary.
 
-For reusable knowledge, create or update a formal note.
+For deliberate navigation, start from existing map/index notes such as `AI 总览`, `实体地图`, `任务地图` and `Agent 读取约定`.
 
-For unprocessed fragments, append to `AI Inbox`.
+## Write path
 
-Every changed note must end with:
+Use:
+
+```text
+raw fragment -> kb_append_inbox
+new durable knowledge -> kb_create_note
+existing durable knowledge -> kb_get -> edit -> kb_update_note(expected_sha256=...)
+```
+
+Every changed note ends with:
 
 ```md
 ## 更新时间
@@ -31,28 +30,26 @@ Every changed note must end with:
 更新时间：YYYY-MM-DD HH:mm Asia/Shanghai
 ```
 
-## Cleanup Review
+The server maintains this footer automatically for MCP writes.
 
-Use `kb_time_list` to build a review table. The user decides what to delete.
+## Search policy
 
-Suggested columns:
+- Default to `hybrid`.
+- Use `keyword` for exact identifiers, filenames, IPs, error strings, model names and commands.
+- Use `semantic` when wording differs substantially and the embedding service is healthy.
+- Do not treat a high retrieval score as proof that a note is current or correct.
+- Limit duplicate chunks from one note unless deep local context is specifically needed.
 
-- title
-- path
-- updated
-- age_days
-- note category or topic
-- suggested action
+## Cleanup review
 
-## Sensitive Information
+Use `kb_time_list` to build a maintenance table. The user decides what to archive or delete; the MCP server intentionally exposes no delete tool.
 
-Store and manage real secrets through the user's own encryption app and the `敏感信息` note.
+## Sensitive information
 
-Ordinary notes should reference the relevant heading:
+Real secrets belong in the user's encrypted secret-management workflow. `敏感信息.md` may remain as a human reference note, but it is excluded from Agent indexing/reading by default.
+
+Ordinary notes should reference sensitive headings without duplicating plaintext:
 
 ```md
 密码：见 [[敏感信息#NAS 密码|NAS 密码]]
 ```
-
-Agents maintain links and headings. They should not expose plaintext in chat.
-

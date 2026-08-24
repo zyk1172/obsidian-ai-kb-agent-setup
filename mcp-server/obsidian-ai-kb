@@ -1,4 +1,19 @@
 #!/bin/sh
-export OBSIDIAN_AI_EMBED_MODEL="text-embedding-nomic-embed-text-v2-moe"
-exec /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 \
-  /Users/zhengyunkai/.local/share/obsidian-ai-kb/obsidian_ai_kb.py
+set -eu
+
+ROOT="${OBSIDIAN_AI_HOME:-$HOME/.local/share/obsidian-ai-kb}"
+ENV_FILE="${OBSIDIAN_AI_ENV_FILE:-$ROOT/env}"
+
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
+
+PYTHON="${OBSIDIAN_AI_PYTHON:-$ROOT/.venv/bin/python}"
+if [ ! -x "$PYTHON" ]; then
+  PYTHON=$(command -v python3)
+fi
+
+exec "$PYTHON" "$ROOT/obsidian_ai_kb.py"
