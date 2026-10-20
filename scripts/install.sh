@@ -16,6 +16,7 @@ fi
 "$ROOT/.venv/bin/python" -m pip install -r "$REPO_ROOT/requirements.txt"
 
 install -m 0644 "$REPO_ROOT/mcp-server/obsidian_ai_kb.py" "$ROOT/obsidian_ai_kb.py"
+install -m 0644 "$REPO_ROOT/mcp-server/kb_governance.py" "$ROOT/kb_governance.py"
 install -m 0644 "$REPO_ROOT/requirements.txt" "$ROOT/requirements.txt"
 install -m 0755 "$REPO_ROOT/mcp-server/obsidian-ai-kb" "$BIN_DIR/obsidian-ai-kb"
 

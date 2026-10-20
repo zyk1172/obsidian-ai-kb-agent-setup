@@ -1,58 +1,40 @@
 # Architecture
 
-## Goal
-
-Keep the system small enough to audit and operate locally while borrowing proven retrieval patterns from mature personal-knowledge systems.
-
-Markdown in the Obsidian vault is always the source of truth. SQLite is disposable and can be rebuilt at any time.
+Markdown remains the source of truth. SQLite holds disposable metadata, chunks, FTS5 and optional embeddings. v3 adds evidence admission and effective validity before retrieval.
 
 ## Data flow
 
 ```text
-Obsidian Markdown
-      |
-      v
-incremental sync (mtime + size -> sha256 on change)
-      |
-      +--> note metadata: title / tags / links / 更新时间
-      |
-      +--> heading-aware chunks + source line ranges
-      |          |
-      |          +--> FTS5 lexical index
-      |          +--> embedding vectors
-      |
-      v
-kb_search
-  |- semantic ranking (cosine via normalized vectors)
-  |- keyword ranking (FTS5, with Unicode substring fallback)
-  |- exact title/wiki-link boost
-  `- Reciprocal Rank Fusion (RRF) + per-note deduplication
+Markdown files
+  |-- externally managed sensitive notes -> headings + opaque refs lookup (read-only, no body index)
+  `-- ordinary notes -> metadata + content fingerprint -> chunks with source lines
+                            |
+                     effective knowledge state
+                            |
+                 active and unexpired by default
+                            |
+                  FTS5 / Unicode fallback
+                            `-- optional semantic search + RRF
 ```
 
-## Why RRF
+Governance is an ordinary Markdown section. `kb_governance.py` validates evidence records, hashes content excluding managed metadata/footer, and computes state. Editing content invalidates review; expiry is computed on every read/search, even if filesystem sync is cached. Metadata/footer changes do not renew verification.
 
-Semantic similarity and lexical/BM25 scores live on different scales. A fixed weighted sum can become unstable when the embedding model or corpus changes. RRF combines ranks instead of raw score magnitudes, so the hybrid search is less sensitive to model-specific calibration.
+Legacy notes lack approval and remain unreviewed. The first v3 sync reparses old metadata; it never adds governance to source files. Default get returns inactive metadata without its body; explicit historical access returns warnings with the content.
 
-## Sync behavior
+## Retrieval
 
-- Repeated tool calls are throttled by `OBSIDIAN_AI_SYNC_INTERVAL`.
-- Unchanged files are skipped using filesystem mtime and size.
-- SHA-256 is calculated only for files that appear changed.
-- If the embedding model changes, vectors are invalidated and backfilled without re-chunking every note.
-- If the embedding endpoint is unavailable, keyword search still works and missing vectors remain rebuildable.
+Keyword is default; embeddings are disabled by default. Enabling embeddings only backfills active knowledge. Sensitive bodies and unreviewed notes are never sent for embedding. Semantic candidates below the configured similarity floor are omitted. Hybrid combines rank positions with RRF and limits duplicate chunks. These thresholds do not establish factual truth or current system state.
 
-## Search modes
+State filters run before candidate truncation. Governance fields and timestamp footers are blanked when chunking, preserving real Markdown line numbers without retrieving admission boilerplate as domain knowledge.
 
-`kb_search` supports:
+## Writes and concurrency
 
-- `hybrid` (default): semantic + keyword + RRF.
-- `semantic`: vector similarity only.
-- `keyword`: FTS5/substring lexical search only.
+Create/update/append require admission. Update/append/mark require a fresh SHA-256. Per-vault `.kb-write.lock` uses POSIX flock to serialize participating MCP processes around read/check/write; writes use temporary files and atomic replace. Connections are committed/rolled back and closed explicitly.
 
-Results include note path, heading, chunk index and source line range so an Agent can retrieve the exact note instead of treating an excerpt as authoritative context.
+Every write also checks managed names, excluded paths, symlinks and aliases to managed inodes. Even directly calling the low-level atomic writer cannot write a protected note. The deprecated sensitive opt-in has no effect. Index paths cannot point to Markdown or managed-file aliases.
 
-## Write safety
+The lock coordinates this server's processes, not external editors. An external writer that ignores the lock can still race a write; no host-wide sandbox is claimed. Callers must review evidence honestly: admission is a structural quality gate, not independent human authentication.
 
-`kb_update_note` supports `expected_sha256`. An Agent can read a note, edit it, and provide the hash it read. If another process changed the note in between, the update is rejected rather than silently overwriting newer content.
+## Derived data migration
 
-No delete tool is exposed by design.
+New installs use `index-v3.sqlite3`, allowing old indexes to remain separate for controlled migration. The installer preserves env and does not run synchronization. No migration edits the externally managed file or silently approves old content. See [migration-v3.md](migration-v3.md).
