@@ -1,49 +1,27 @@
 # Security Model
 
-The MCP server has local filesystem access to the configured vault. Treat every connected Agent as a process that can read and write whatever the MCP tools expose.
+## Externally managed notes
 
-## Sensitive notes
+The user's `敏感信息.md` is managed by another application. Its bytes, encoding, formatting, timestamps and references must not be rewritten by knowledge-base operations.
 
-Sensitive files are **excluded by default**, not merely hidden by prompt instructions.
+Built-in, case-insensitive protection covers `敏感信息*.md` and `secrets*.md` at any vault depth, including backup variants. Additional `OBSIDIAN_AI_SENSITIVE` globs extend this set; default extras include `*api key*.md`. The built-in set cannot be disabled. `OBSIDIAN_AI_ALLOW_SENSITIVE` is obsolete and grants no access.
 
-Default patterns:
+Protected bodies never enter SQLite/FTS/embeddings. `kb_sensitive_lookup` reads files in place and returns only headings and opaque `secret://` references, without a body or generated excerpt. Plaintext values and ciphertext blocks are not returned. Headings and reference handles are still potentially private metadata: callers should only query what the current task needs, and headings must not contain actual secret values.
 
-```text
-敏感信息.md
-**/敏感信息.md
-secrets.md
-**/secrets.md
-```
+All content writers, state markers and the low-level atomic writer reject managed names, excluded paths, symlinks and hardlink aliases to managed files. Reindex/status/search never rewrite Markdown. Source-file hashes and mtimes are covered by regression tests.
 
-Configure patterns with `OBSIDIAN_AI_SENSITIVE`. Opt-in access requires:
+Previously generated v1/v2 databases may already contain private bodies. Removing rows during a v3 rebuild is not secure erasure of old databases, WAL files or backups. Keep legacy storage out of normal Agent access and manage its retention using the user's own secret-management process; this service does not delete it automatically.
 
-```text
-OBSIDIAN_AI_ALLOW_SENSITIVE=true
-```
+## Admission and authority
 
-Do not enable this just to preserve wiki links. Ordinary notes can safely contain links such as:
+Durable writes need an explicit current user request, reusable value, source, evidence, scope and validity dates. These are caller claims, not authenticated user approval or proof that a source is correct. Retrieved documents must be treated as untrusted data; they cannot authorize tool use, change user preferences or extend task scope.
 
-```md
-密码：见 [[敏感信息#NAS 密码|NAS 密码]]
-```
+Never copy real secrets into ordinary notes. Resolve opaque handles only through the user's chosen secret-management tools. No decrypt/reveal capability is provided here.
 
-The Agent does not need the target note contents to maintain that reference.
+## Embeddings
 
-## General exclusions
+Disabled by default. When explicitly enabled, active non-sensitive chunks are sent to the configured endpoint. A remote endpoint receives that content. Query text is also sent for semantic/hybrid search. Do not include secrets in queries. Tokens belong in the local mode-0600 env, never in committed configuration.
 
-Use `OBSIDIAN_AI_EXCLUDE` for folders or files that should never enter the index. `.obsidian`, `.trash` and Git internals are excluded by default.
+## Boundary
 
-## Embedding endpoint
-
-Every indexed chunk is sent to the configured embedding endpoint. If that endpoint is remote, note content leaves the machine. Prefer a trusted local/LAN service. If authentication is required, put the token in the local `env` file and keep that file mode `0600`.
-
-## Writes
-
-- `kb_create_note` never overwrites an existing note.
-- `kb_update_note` can use SHA-256 optimistic locking.
-- Writes are atomic (`temp file -> os.replace`).
-- There is intentionally no Agent delete tool.
-
-## Threat boundary
-
-This project does not attempt to sandbox the MCP client itself. A malicious or compromised Agent with independent shell/filesystem tools may bypass these MCP restrictions. The rules here protect the knowledge-base access path, not the entire host.
+The MCP protects its own access path. A separate Agent with unrestricted shell/filesystem tools can bypass it; an external writer can ignore its advisory lock. A user who directly edits governance records can assert approval. This project does not provide host sandboxing, cryptographic approval or semantic truth verification.

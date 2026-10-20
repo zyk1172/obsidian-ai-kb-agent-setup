@@ -1,86 +1,61 @@
 # Obsidian AI KB Agent Setup
 
-一个轻量、可审计的 Obsidian AI 知识库 MCP 服务：**Markdown 永远是真源，SQLite/向量索引随时可重建。** 用于让 Codex、Claude Code、Hermes、OpenClaw 等 MCP Agent 共用同一套长期知识。
+供 Codex、Claude、Hermes、OpenClaw 共享可复用长期背景的轻量 MCP 服务。Markdown 是原始资料，SQLite 是可重建的派生索引。
 
-## v2 重点
+## v3：先判断能不能用，再检索
 
-- **混合检索**：向量语义检索 + FTS5/关键词检索，通过 Reciprocal Rank Fusion (RRF) 融合，不再直接混加不同量纲的分数。
-- **中文/故障回退**：FTS 无结果时自动回退 Unicode 子串检索；embedding 服务不可用时 `hybrid` 自动降级为 `keyword`。
-- **可追溯结果**：搜索结果包含 `path`、`heading`、`chunk_index`、`line_start`、`line_end`。
-- **低开销同步**：mtime/size 快速判断、变更后才算 SHA-256；短时间连续查询不会反复扫描；缺失向量独立回填。
-- **安全写入**：新增 `kb_update_note`，支持 `expected_sha256` 乐观锁，避免 Agent 覆盖刚被其他程序修改的笔记。
-- **敏感区硬隔离**：`敏感信息.md` / `secrets.md` 默认不索引、不读取、不写入，而不是只依赖提示词。
-- **工程化**：便携 launcher、独立 venv 安装脚本、环境配置文件、单元测试和 GitHub Actions CI。
+- **旧知识隔离**：没有治理记录的笔记默认为 `unreviewed`。默认搜索不返回其片段，默认读取只返回元数据；有意追溯历史时使用 `include_inactive=true`。
+- **有效性独立于修改时间**：正文验证日期和复查期限决定是否可用；刷新 `更新时间` 不续期。正文改变会使原验证失效。到期笔记自动成为 `expired`，不改动原文件。
+- **严格入库**：创建、更新和 Inbox 追加都要求本轮用户明确要求保存，以及来源、验证依据、适用范围、复用价值和验证/复查日期。普通问答、任务流水、临时状态和推测不自动入库。
+- **受管文件永远只读**：`敏感信息*.md`、`secrets*.md` 及配置的其他受管文件不进入全文索引或 embedding。`kb_sensitive_lookup` 仅查询标题目录和不透明 `secret://` 引用。所有写入路径禁止修改它们，旧的敏感区 opt-in 不能解除写保护。
+- **简单检索优先**：默认 `keyword`，默认禁用 embedding。可显式启用语义/混合检索；无匹配时返回空。向量只为已复核且有效的笔记生成。
+- **共享更新保护**：更新和追加必须提供读取时的 SHA-256；同一 vault 的 MCP 写入使用跨进程锁，防止多个 Agent 同时覆盖同一版本。
+
+这是一次有意收紧的接口升级。旧客户端缺少 admission/hash 的写请求会被拒绝；现有笔记不会被批量改写、自动认可或删除。
+
+## 什么值得保存
+
+优先保存你独有、将来值得复用的偏好、项目决策及原因、验证过的操作方法、可复现的教训、可靠参考入口。完整资料保留在原处，知识库记录必要结论和来源。
+
+一次任务完成不构成入库授权。入库字段是调用者提交的证据声明，服务只能检查结构、日期和版本，不能证明其事实真实性或用户确实说过该句话。Agent 必须忠实引用当前任务里的授权，不得编造。
+
+详细门槛、日期上限及调用示例见 [入库与有效性规则](docs/admission.md)。
 
 ## Tools
 
 | Tool | Purpose |
 | --- | --- |
-| `kb_search` | `hybrid` / `semantic` / `keyword` 检索，返回来源行号 |
-| `kb_get` | 按标题、文件名或相对路径精确读取一篇笔记 |
-| `kb_list` | 列出已索引笔记和轻量元数据 |
-| `kb_time_list` | 按笔记页脚 `更新时间` 做维护审查 |
-| `kb_append_inbox` | 把未整理片段追加到 `AI Inbox` |
-| `kb_create_note` | 创建正式 Markdown 笔记，不覆盖已有文件 |
-| `kb_update_note` | 更新已有笔记，可用 SHA-256 防并发覆盖 |
-| `kb_reindex` | 立即同步；`force=true` 时完整重建 chunk 元数据 |
-| `kb_status` | 查看 vault、索引、FTS、embedding 和安全配置状态 |
+| `kb_search` | 默认只检索已复核、未过期知识；历史查询显式启用 `include_inactive` |
+| `kb_get` | 从 Markdown 读取新鲜内容和 SHA-256；未复核正文默认不返回 |
+| `kb_list` | 按有效状态列出笔记元数据，用于复核清单 |
+| `kb_time_list` | 按修改时间维护审查，同时返回验证日期和知识状态 |
+| `kb_sensitive_lookup` | 只读查询外部软件管理的敏感文件目录与不透明引用 |
+| `kb_create_note` | 满足 admission 后新增，不覆盖已有笔记 |
+| `kb_update_note` | 用新证据重新确认笔记，要求 admission 和 SHA-256 |
+| `kb_mark_note` | 将普通笔记标为废弃/归档，可指向有效替代笔记，保留历史 |
+| `kb_append_inbox` | 仅追加明确要求保存且有复用依据的候选；Inbox 不参与正式检索 |
+| `kb_reindex` | 重建派生索引，不改写任何笔记 |
+| `kb_status` | 检查版本、有效状态数量、检索配置和受管文件数量 |
 
-## Quick install
+## 安装与升级
 
 ```sh
 ./scripts/install.sh
 ```
 
-然后检查：
+安装使用独立 venv，不覆盖已有 `env`。v3 新安装默认索引为 `~/.local/share/obsidian-ai-kb/index-v3.sqlite3`，默认不连接 embedding 服务。
 
-```text
-~/.local/share/obsidian-ai-kb/env
+**已有安装先读 [v3 迁移说明](docs/migration-v3.md)**。必须更新全部客户端所运行的服务；只修改本仓库不会改变已安装的旧版 MCP。旧笔记初始没有 active 结果是预期的复核隔离状态。
+
+配置示例见 `configs/`；操作规则见 [operating-rules.md](docs/operating-rules.md)，接入见 [new-agent-setup.md](docs/new-agent-setup.md)，安全边界见 [security.md](docs/security.md)，实现见 [architecture.md](docs/architecture.md)。
+
+## 本地验证
+
+```sh
+python3 -m py_compile mcp-server/obsidian_ai_kb.py mcp-server/kb_governance.py
+python3 -m unittest discover -s tests -v
 ```
 
-安装脚本不会覆盖已经存在的 `env`。客户端配置示例见 `configs/`；新 Agent 的完整接入规则见 `docs/new-agent-setup.md`。
+在已安装 `requirements.txt` 的运行时中，执行 `python3 tests/mcp_smoke.py` 可验证真实 MCP stdio 往返。
 
-## Default knowledge-base conventions
-
-- 笔记使用普通 Markdown，不要求 YAML frontmatter。
-- 第一行建议为 `# Title`。
-- 使用有意义的 `[[wiki links]]`。
-- MCP 写入时自动维护：
-
-```md
-## 更新时间
-
-更新时间：YYYY-MM-DD HH:mm Asia/Shanghai
-```
-
-- 普通笔记可以引用 `[[敏感信息#标题|别名]]`，但敏感笔记本身默认不进入 Agent 可访问索引。
-
-## Configuration
-
-主要环境变量：
-
-| Variable | Meaning |
-| --- | --- |
-| `OBSIDIAN_AI_PATH` | Obsidian AI vault 路径 |
-| `OBSIDIAN_AI_INDEX` | SQLite 索引路径 |
-| `OBSIDIAN_AI_EMBED_BASE_URL` | OpenAI-compatible embedding endpoint |
-| `OBSIDIAN_AI_EMBED_MODEL` | embedding 模型 |
-| `OBSIDIAN_AI_EMBED_API_KEY` | 可选 API key |
-| `OBSIDIAN_AI_SYNC_INTERVAL` | 连续请求之间的同步节流秒数，默认 2 |
-| `OBSIDIAN_AI_EXCLUDE` | 不索引的 glob 列表 |
-| `OBSIDIAN_AI_SENSITIVE` | 敏感文件 glob 列表 |
-| `OBSIDIAN_AI_ALLOW_SENSITIVE` | 是否显式开放敏感区，默认 `false` |
-
-完整示例见 `configs/env.example`。
-
-## Design references
-
-这次升级借鉴的不是成熟项目的 UI，而是它们已经验证过的检索/工程原则：
-
-- **Khoj**：预计算 embedding、候选检索后可进一步重排、结果去重。
-- **Obsidian Copilot**：把 lexical retrieval 做成独立检索层，强调 chunk 级结果和多阶段检索。
-- **Smart Connections**：local-first、轻依赖、默认优先私密和可审计性。
-
-本项目刻意不引入完整 Web 服务、LLM 对话层、Postgres/向量数据库或复杂框架，以保持单机个人知识库的维护成本足够低。
-
-进一步说明：`docs/architecture.md`、`docs/security.md`、`docs/operating-rules.md`。
+测试使用临时 vault 和本地 embedding 夹具，不访问真实笔记、保险箱或模型服务。CI 在 Python 3.11/3.12/3.13 上执行。运行平台为 macOS / Linux（跨进程写锁使用 POSIX flock）。
